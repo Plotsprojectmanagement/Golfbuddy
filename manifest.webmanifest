@@ -1,0 +1,22 @@
+{
+  "name": "Golfregels Caddie",
+  "short_name": "Golfregels",
+  "description": "NGF Rules of Golf chatbot voor tijdens je ronde",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a5d3a",
+  "theme_color": "#0a5d3a",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

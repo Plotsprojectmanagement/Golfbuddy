@@ -1,0 +1,14 @@
+{
+  "name": "golfregels-caddie",
+  "version": "1.0.0",
+  "description": "NGF Rules of Golf chatbot voor tijdens je ronde",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
