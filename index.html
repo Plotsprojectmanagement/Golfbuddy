@@ -22,6 +22,7 @@
       --user-bg: #d8ebe0;
       --bot-bg: #ffffff;
       --warn: #c75c00;
+      --rec: #d63a3a;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
@@ -41,9 +42,11 @@
       display: flex; align-items: center; justify-content: space-between;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       z-index: 10;
+      gap: 8px;
     }
     header h1 { margin: 0; font-size: 17px; font-weight: 600; }
     header .sub { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+    .header-actions { display: flex; gap: 6px; align-items: center; }
     .header-btn {
       background: rgba(255,255,255,0.15);
       border: 0; color: white; padding: 8px 12px;
@@ -51,6 +54,9 @@
       min-height: 38px;
     }
     .header-btn:active { background: rgba(255,255,255,0.3); }
+    .header-btn.active {
+      background: rgba(255,255,255,0.85); color: var(--green-dark);
+    }
     #chat {
       flex: 1; overflow-y: auto;
       padding: 12px;
@@ -64,6 +70,7 @@
       white-space: pre-wrap;
       word-wrap: break-word;
       box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      position: relative;
     }
     .msg.user {
       align-self: flex-end;
@@ -75,6 +82,7 @@
       background: var(--bot-bg);
       border-bottom-left-radius: 4px;
       border: 1px solid var(--border);
+      padding-bottom: 28px;
     }
     .msg.bot strong { color: var(--green-dark); }
     .msg.bot ul, .msg.bot ol { margin: 6px 0; padding-left: 20px; }
@@ -84,6 +92,16 @@
       padding: 1px 5px; border-radius: 4px;
       font-size: 0.92em;
     }
+    .speak-btn {
+      position: absolute;
+      bottom: 4px; right: 6px;
+      background: transparent; border: 0;
+      color: var(--muted); font-size: 16px;
+      padding: 4px 8px; border-radius: 6px;
+      cursor: pointer;
+    }
+    .speak-btn:active { background: var(--green-light); }
+    .speak-btn.speaking { color: var(--green-dark); }
     .msg.system {
       align-self: center; max-width: 92%;
       background: #fff3e6; color: var(--warn);
@@ -113,7 +131,7 @@
       padding-bottom: max(8px, env(safe-area-inset-bottom));
       background: white;
       border-top: 1px solid var(--border);
-      display: flex; gap: 8px; align-items: flex-end;
+      display: flex; gap: 6px; align-items: flex-end;
     }
     #input {
       flex: 1;
@@ -129,16 +147,31 @@
       line-height: 1.4;
     }
     #input:focus { border-color: var(--green); }
-    #send {
+    .icon-btn {
       background: var(--green-dark); color: white;
       border: 0; border-radius: 50%;
       width: 44px; height: 44px;
-      font-size: 22px; cursor: pointer;
+      font-size: 20px; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0;
     }
-    #send:disabled { opacity: 0.4; }
-    #send:active:not(:disabled) { background: var(--green); transform: scale(0.95); }
+    .icon-btn:disabled { opacity: 0.4; }
+    .icon-btn:active:not(:disabled) { transform: scale(0.95); }
+    #mic {
+      background: white; color: var(--green-dark);
+      border: 2px solid var(--green-dark);
+    }
+    #mic.recording {
+      background: var(--rec); color: white;
+      border-color: var(--rec);
+      animation: pulse 1.2s infinite;
+    }
+    #mic.unsupported { display: none; }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(214, 58, 58, 0.5); }
+      70% { box-shadow: 0 0 0 12px rgba(214, 58, 58, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(214, 58, 58, 0); }
+    }
     .quick-buttons {
       display: flex; gap: 6px; padding: 0 12px 8px; flex-wrap: wrap;
       background: white; border-top: 1px solid var(--border);
@@ -160,6 +193,10 @@
       margin: 0 0 10px;
     }
     .empty-state p { margin: 6px 0; font-size: 14px; }
+    .empty-state .hint {
+      margin-top: 18px;
+      font-size: 13px; color: var(--muted);
+    }
   </style>
 </head>
 <body>
@@ -168,14 +205,18 @@
       <h1>⛳ Golfregels Caddie</h1>
       <div class="sub">NGF Rules of Golf 2023</div>
     </div>
-    <button class="header-btn" id="reset" title="Nieuw gesprek">Nieuw</button>
+    <div class="header-actions">
+      <button class="header-btn" id="auto-speak" title="Antwoord automatisch voorlezen" aria-pressed="false">🔊</button>
+      <button class="header-btn" id="reset" title="Nieuw gesprek">Nieuw</button>
+    </div>
   </header>
 
   <div id="chat">
     <div class="empty-state" id="empty">
       <h2>Beschrijf je situatie</h2>
-      <p>Bijvoorbeeld: <em>"Mijn bal ligt achter een boom in de rough, 130m van de green. Ik kan niet vrij swingen."</em></p>
+      <p>Bijvoorbeeld: <em>"Mijn bal ligt achter een boom in de rough, 130m van de green."</em></p>
       <p>Ik geef je alle regelopties en de beste keuze.</p>
+      <p class="hint">🎤 Tik op de microfoon om je vraag in te spreken.</p>
     </div>
   </div>
 
@@ -187,49 +228,166 @@
   </div>
 
   <div id="input-bar">
+    <button id="mic" class="icon-btn" aria-label="Microfoon" title="Spreek je vraag in">🎤</button>
     <textarea id="input" rows="1" placeholder="Beschrijf je situatie..." autocomplete="off"></textarea>
-    <button id="send" aria-label="Verstuur">▲</button>
+    <button id="send" class="icon-btn" aria-label="Verstuur">▲</button>
   </div>
 
   <script>
     const chat = document.getElementById('chat');
     const input = document.getElementById('input');
     const send = document.getElementById('send');
+    const mic = document.getElementById('mic');
+    const autoSpeakBtn = document.getElementById('auto-speak');
     const reset = document.getElementById('reset');
     const empty = document.getElementById('empty');
     const quick = document.getElementById('quick');
 
     const STORAGE_KEY = 'golfregels-caddie-history';
+    const AUTO_SPEAK_KEY = 'golfregels-auto-speak';
     let history = [];
+    let autoSpeak = sessionStorage.getItem(AUTO_SPEAK_KEY) === '1';
 
-    // Load history
+    if (autoSpeak) {
+      autoSpeakBtn.classList.add('active');
+      autoSpeakBtn.setAttribute('aria-pressed', 'true');
+    }
+
+    // ========== Speech Recognition ==========
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let isRecording = false;
+    let baseTranscript = '';
+
+    if (SR) {
+      recognition = new SR();
+      recognition.lang = 'nl-NL';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event) => {
+        let finalText = '';
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const t = event.results[i][0].transcript;
+          if (event.results[i].isFinal) finalText += t;
+          else interim += t;
+        }
+        if (finalText) baseTranscript += finalText;
+        input.value = (baseTranscript + interim).trim();
+        autoSize();
+      };
+
+      recognition.onend = () => {
+        // If user hadn't manually stopped, try to keep going (handles iOS Safari auto-stop)
+        if (isRecording) {
+          try { recognition.start(); } catch (e) { stopRecording(); }
+        }
+      };
+
+      recognition.onerror = (event) => {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          showSystemMessage('Microfoontoegang geweigerd. Sta het toe via je browserinstellingen.');
+        } else if (event.error !== 'aborted' && event.error !== 'no-speech') {
+          showSystemMessage('Spraakherkenning-fout: ' + event.error);
+        }
+        stopRecording();
+      };
+    } else {
+      mic.classList.add('unsupported');
+    }
+
+    function startRecording() {
+      if (!recognition || isRecording) return;
+      baseTranscript = input.value ? input.value.trim() + ' ' : '';
+      isRecording = true;
+      mic.classList.add('recording');
+      mic.textContent = '⏹';
+      if (navigator.vibrate) navigator.vibrate(30);
+      try { recognition.start(); } catch (e) { /* already started */ }
+    }
+
+    function stopRecording() {
+      isRecording = false;
+      mic.classList.remove('recording');
+      mic.textContent = '🎤';
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+    }
+
+    mic.addEventListener('click', () => {
+      if (isRecording) stopRecording();
+      else startRecording();
+    });
+
+    // ========== Text-to-Speech ==========
+    let currentUtterance = null;
+    function speakText(text, btn) {
+      if (!('speechSynthesis' in window)) return;
+      speechSynthesis.cancel();
+      // Strip markdown for cleaner speech
+      const clean = text
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/\*(.+?)\*/g, '$1')
+        .replace(/`(.+?)`/g, '$1')
+        .replace(/^[-*]\s+/gm, '')
+        .replace(/^\d+\.\s+/gm, '');
+      const u = new SpeechSynthesisUtterance(clean);
+      u.lang = 'nl-NL';
+      u.rate = 1.05;
+      u.pitch = 1.0;
+      currentUtterance = u;
+      if (btn) {
+        btn.classList.add('speaking');
+        btn.textContent = '⏹';
+        u.onend = u.onerror = () => { btn.classList.remove('speaking'); btn.textContent = '🔊'; };
+      }
+      speechSynthesis.speak(u);
+    }
+
+    function stopSpeaking() {
+      if ('speechSynthesis' in window) speechSynthesis.cancel();
+      document.querySelectorAll('.speak-btn.speaking').forEach(b => {
+        b.classList.remove('speaking'); b.textContent = '🔊';
+      });
+    }
+
+    autoSpeakBtn.addEventListener('click', () => {
+      autoSpeak = !autoSpeak;
+      autoSpeakBtn.classList.toggle('active', autoSpeak);
+      autoSpeakBtn.setAttribute('aria-pressed', autoSpeak ? 'true' : 'false');
+      sessionStorage.setItem(AUTO_SPEAK_KEY, autoSpeak ? '1' : '0');
+      if (!autoSpeak) stopSpeaking();
+    });
+
+    // ========== Chat plumbing ==========
+    function autoSize() {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    }
+
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) {
         history = JSON.parse(saved);
         if (history.length > 0) {
           empty.remove();
-          history.forEach(m => renderMessage(m.role, m.content));
+          history.forEach(m => renderMessage(m.role === 'assistant' ? 'bot' : m.role, m.content));
         }
       }
-    } catch(e) {}
+    } catch (e) {}
 
-    // Auto-resize textarea
-    input.addEventListener('input', () => {
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-    });
+    input.addEventListener('input', autoSize);
 
-    // Quick buttons
     quick.addEventListener('click', e => {
       if (e.target.classList.contains('quick-btn')) {
         input.value = e.target.dataset.q;
         input.focus();
-        input.dispatchEvent(new Event('input'));
+        autoSize();
       }
     });
 
-    // Send on Enter (not Shift+Enter)
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey && !e.metaKey) {
         e.preventDefault();
@@ -241,6 +399,7 @@
 
     reset.addEventListener('click', () => {
       if (history.length > 0 && !confirm('Nieuw gesprek starten?')) return;
+      stopSpeaking();
       history = [];
       sessionStorage.removeItem(STORAGE_KEY);
       chat.innerHTML = '';
@@ -248,7 +407,7 @@
     });
 
     function saveHistory() {
-      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch(e) {}
+      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch (e) {}
     }
 
     function renderMessage(role, text) {
@@ -256,6 +415,20 @@
       div.className = 'msg ' + role;
       if (role === 'bot') {
         div.innerHTML = simpleMarkdown(text);
+        // speaker button
+        const speakBtn = document.createElement('button');
+        speakBtn.className = 'speak-btn';
+        speakBtn.textContent = '🔊';
+        speakBtn.title = 'Voorlezen';
+        speakBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (speakBtn.classList.contains('speaking')) {
+            stopSpeaking();
+          } else {
+            speakText(text, speakBtn);
+          }
+        });
+        div.appendChild(speakBtn);
       } else {
         div.textContent = text;
       }
@@ -265,15 +438,10 @@
     }
 
     function simpleMarkdown(text) {
-      // escape HTML first
       let s = text.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
-      // bold **text**
       s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      // italic *text*
       s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-      // inline code `text`
       s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-      // numbered lists
       const lines = s.split('\n');
       const out = [];
       let inOl = false, inUl = false;
@@ -308,6 +476,8 @@
     async function sendMessage() {
       const text = input.value.trim();
       if (!text || send.disabled) return;
+      if (isRecording) stopRecording();
+      stopSpeaking();
 
       if (empty.parentNode) empty.remove();
 
@@ -319,7 +489,6 @@
       renderMessage('user', text);
       saveHistory();
 
-      // Typing indicator
       const typing = document.createElement('div');
       typing.className = 'typing';
       typing.innerHTML = '<span></span><span></span><span></span>';
@@ -345,18 +514,21 @@
         const data = await res.json();
         const reply = data.reply || '(leeg antwoord)';
         history.push({ role: 'assistant', content: reply });
-        renderMessage('bot', reply);
+        const msgEl = renderMessage('bot', reply);
         saveHistory();
+
+        if (autoSpeak) {
+          const btn = msgEl.querySelector('.speak-btn');
+          speakText(reply, btn);
+        }
       } catch (e) {
         typing.remove();
         showSystemMessage('Verbindingsfout: ' + e.message);
       } finally {
         send.disabled = false;
-        input.focus();
       }
     }
 
-    // Service worker for offline shell (optional)
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
