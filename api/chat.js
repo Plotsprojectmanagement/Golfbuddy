@@ -1,11 +1,11 @@
 // Vercel serverless function — proxy to Anthropic API
 // POST /api/chat  body: { messages: [{role, content}, ...] }
+// content may be a string OR an array of blocks ({type:"text"|"image", ...})
 // Returns: { reply: "..." }
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-// Load system prompt from sibling file at cold-start
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let SYSTEM_PROMPT;
 try {
@@ -15,8 +15,37 @@ try {
   console.error('Could not load system-prompt.txt, using fallback:', e.message);
 }
 
+// Validate a single content block for safe forwarding to Anthropic
+function sanitizeBlock(block) {
+  if (!block || typeof block !== 'object') return null;
+  if (block.type === 'text' && typeof block.text === 'string') {
+    return { type: 'text', text: block.text.slice(0, 8000) };
+  }
+  if (block.type === 'image' && block.source && block.source.type === 'base64') {
+    const mt = block.source.media_type;
+    const data = block.source.data;
+    const okMt = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mt);
+    if (okMt && typeof data === 'string' && data.length < 7_000_000) {
+      return { type: 'image', source: { type: 'base64', media_type: mt, data } };
+    }
+  }
+  return null;
+}
+
+function sanitizeMessage(m) {
+  if (!m || (m.role !== 'user' && m.role !== 'assistant')) return null;
+  if (typeof m.content === 'string') {
+    return { role: m.role, content: m.content.slice(0, 8000) };
+  }
+  if (Array.isArray(m.content)) {
+    const blocks = m.content.map(sanitizeBlock).filter(Boolean);
+    if (blocks.length === 0) return null;
+    return { role: m.role, content: blocks };
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
-  // CORS — handy if testing from other origins
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -40,11 +69,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Geen berichten meegegeven.' });
   }
 
-  // Filter to valid roles, trim oversize content, keep last 30 turns
-  const cleanMessages = messages
-    .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-    .map(m => ({ role: m.role, content: m.content.slice(0, 8000) }))
-    .slice(-30);
+  const cleanMessages = messages.map(sanitizeMessage).filter(Boolean).slice(-30);
 
   if (cleanMessages.length === 0 || cleanMessages[cleanMessages.length - 1].role !== 'user') {
     return res.status(400).json({ error: 'Laatste bericht moet van de gebruiker zijn.' });
@@ -87,3 +112,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server-fout: ' + err.message });
   }
 }
+
+export const config = { api: { bodyParser: { sizeLimit: '6mb' } } };
