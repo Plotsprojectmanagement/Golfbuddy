@@ -15,7 +15,22 @@ try {
   console.error('Could not load system-prompt.txt, using fallback:', e.message);
 }
 
-// Validate a single content block for safe forwarding to Anthropic
+// Default allowlist; override via env var (comma-separated)
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://golfbuddy-seven.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'capacitor://localhost',
+  'ionic://localhost',
+];
+
+function getAllowedOrigins() {
+  if (process.env.ALLOWED_ORIGINS) {
+    return process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return DEFAULT_ALLOWED_ORIGINS;
+}
+
 function sanitizeBlock(block) {
   if (!block || typeof block !== 'object') return null;
   if (block.type === 'text' && typeof block.text === 'string') {
@@ -46,12 +61,36 @@ function sanitizeMessage(m) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  const allowedOrigins = getAllowedOrigins();
+  const originAllowed = allowedOrigins.includes(origin) || origin === '';
+
+  // CORS: only allow listed origins (no wildcard)
+  if (originAllowed && origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-App-Token');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Origin check (defense layer 1)
+  if (!originAllowed) {
+    console.warn('Blocked origin:', origin);
+    return res.status(403).json({ error: 'Origin niet toegestaan' });
+  }
+
+  // App-token check (defense layer 2)
+  const expectedToken = process.env.APP_TOKEN;
+  if (expectedToken) {
+    const sentToken = req.headers['x-app-token'];
+    if (sentToken !== expectedToken) {
+      console.warn('Bad/missing X-App-Token');
+      return res.status(403).json({ error: 'Onjuiste app-token' });
+    }
+  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
