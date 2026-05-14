@@ -15,7 +15,6 @@ try {
   console.error('Could not load system-prompt.txt, using fallback:', e.message);
 }
 
-// Default allowlist; override via env var (comma-separated)
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://golfbuddy-seven.vercel.app',
   'http://localhost:3000',
@@ -24,11 +23,54 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'ionic://localhost',
 ];
 
+const DAILY_LIMIT = Number(process.env.RATE_LIMIT_PER_DAY || 50);
+
 function getAllowedOrigins() {
   if (process.env.ALLOWED_ORIGINS) {
     return process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
   }
   return DEFAULT_ALLOWED_ORIGINS;
+}
+
+function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) return xff.split(',')[0].trim();
+  return req.headers['x-real-ip'] || req.socket?.remoteAddress || 'unknown';
+}
+
+// Rate-limit via Upstash Redis REST API. Returns { allowed: boolean, count: number, limit: number }.
+async function checkRateLimit(ip) {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return { allowed: true, count: 0, limit: DAILY_LIMIT, disabled: true };
+
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
+  const key = `rl:${ip}:${today}`;
+
+  try {
+    // Pipeline: INCR then EXPIRE
+    const res = await fetch(`${url}/pipeline`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify([
+        ['INCR', key],
+        ['EXPIRE', key, 90000]  // ~25u, dekt timezone-grens
+      ])
+    });
+    if (!res.ok) {
+      console.error('Upstash error:', res.status, await res.text());
+      return { allowed: true, count: 0, limit: DAILY_LIMIT, disabled: true };
+    }
+    const data = await res.json();
+    const count = Number(data[0]?.result || 0);
+    return { allowed: count <= DAILY_LIMIT, count, limit: DAILY_LIMIT };
+  } catch (err) {
+    console.error('Rate-limit check failed:', err);
+    return { allowed: true, count: 0, limit: DAILY_LIMIT, disabled: true };
+  }
 }
 
 function sanitizeBlock(block) {
@@ -65,7 +107,6 @@ export default async function handler(req, res) {
   const allowedOrigins = getAllowedOrigins();
   const originAllowed = allowedOrigins.includes(origin) || origin === '';
 
-  // CORS: only allow listed origins (no wildcard)
   if (originAllowed && origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
@@ -76,13 +117,11 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Origin check (defense layer 1)
   if (!originAllowed) {
     console.warn('Blocked origin:', origin);
     return res.status(403).json({ error: 'Origin niet toegestaan' });
   }
 
-  // App-token check (defense layer 2)
   const expectedToken = process.env.APP_TOKEN;
   if (expectedToken) {
     const sentToken = req.headers['x-app-token'];
@@ -90,6 +129,17 @@ export default async function handler(req, res) {
       console.warn('Bad/missing X-App-Token');
       return res.status(403).json({ error: 'Onjuiste app-token' });
     }
+  }
+
+  // Rate-limit per IP
+  const ip = getClientIp(req);
+  const rl = await checkRateLimit(ip);
+  res.setHeader('X-RateLimit-Limit', String(rl.limit));
+  res.setHeader('X-RateLimit-Used', String(rl.count));
+  if (!rl.allowed) {
+    return res.status(429).json({
+      error: `Je hebt je daglimiet van ${rl.limit} vragen bereikt. Probeer het morgen weer.`
+    });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
