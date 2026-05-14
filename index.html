@@ -220,6 +220,7 @@
   <input type="file" id="file-input" accept="image/*" capture="environment" />
 
   <script>
+    const APP_TOKEN = 'RqQiu-98seUjPaZYq_NcQSyU3i1zNjqA';
     const chat = document.getElementById('chat');
     const input = document.getElementById('input');
     const send = document.getElementById('send');
@@ -603,7 +604,7 @@
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN },
           body: JSON.stringify({ messages: history })
         });
         typing.remove();
