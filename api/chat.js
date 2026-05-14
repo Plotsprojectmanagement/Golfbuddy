@@ -16,6 +16,8 @@ try {
 }
 
 const DEFAULT_ALLOWED_ORIGINS = [
+  'https://regelcaddy.app',
+  'https://www.regelcaddy.app',
   'https://golfbuddy-seven.vercel.app',
   'http://localhost:3000',
   'http://localhost:5173',
@@ -38,17 +40,15 @@ function getClientIp(req) {
   return req.headers['x-real-ip'] || req.socket?.remoteAddress || 'unknown';
 }
 
-// Rate-limit via Upstash Redis REST API. Returns { allowed: boolean, count: number, limit: number }.
 async function checkRateLimit(ip) {
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
   if (!url || !token) return { allowed: true, count: 0, limit: DAILY_LIMIT, disabled: true };
 
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
+  const today = new Date().toISOString().slice(0, 10);
   const key = `rl:${ip}:${today}`;
 
   try {
-    // Pipeline: INCR then EXPIRE
     const res = await fetch(`${url}/pipeline`, {
       method: 'POST',
       headers: {
@@ -57,7 +57,7 @@ async function checkRateLimit(ip) {
       },
       body: JSON.stringify([
         ['INCR', key],
-        ['EXPIRE', key, 90000]  // ~25u, dekt timezone-grens
+        ['EXPIRE', key, 90000]
       ])
     });
     if (!res.ok) {
@@ -131,7 +131,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // Rate-limit per IP
   const ip = getClientIp(req);
   const rl = await checkRateLimit(ip);
   res.setHeader('X-RateLimit-Limit', String(rl.limit));
